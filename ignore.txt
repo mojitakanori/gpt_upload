@@ -1,8 +1,7 @@
-#あああああああああ
+#このようにコメントアウトすることができます。
+
 node_modules
 build
 environment
 public
 src
-
-#aaaaaaaaa
