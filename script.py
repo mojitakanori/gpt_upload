@@ -2,6 +2,9 @@ import os
 import sys
 import fnmatch
 
+def normalize_path(path):
+    return path.replace('\\', '/')
+
 def read_pattern_list(pattern_file):
     pattern_items = set()
     with open(pattern_file, 'r', encoding='utf-8') as f:
@@ -9,10 +12,12 @@ def read_pattern_list(pattern_file):
             # 行からコメントを除去し、前後の空白を削除
             line = line.split('#', 1)[0].strip()
             if line:
+                # パス区切り文字を統一
+                line = normalize_path(line)
                 pattern_items.add(line)
     return pattern_items
 
-def should_include(item_rel_path, mode, pattern_list):
+def should_include(item_rel_path, is_dir, mode, pattern_list):
     if mode == 'ignore':
         # パターンに一致しなければ含める
         for pattern in pattern_list:
@@ -29,6 +34,30 @@ def should_include(item_rel_path, mode, pattern_list):
         # すべて含める
         return True
 
+def has_included_files(dir_path, rel_path, mode, pattern_list):
+    # ディレクトリ内に含めるべきファイルがあるか再帰的にチェック
+    try:
+        contents = os.listdir(dir_path)
+    except PermissionError:
+        return False
+    for item in contents:
+        item_full_path = os.path.join(dir_path, item)
+        item_rel_path = os.path.join(rel_path, item) if rel_path else item
+        # パス区切り文字を統一
+        item_rel_path_normalized = normalize_path(item_rel_path)
+        is_directory = os.path.isdir(item_full_path)
+        if should_include(item_rel_path_normalized, is_directory, mode, pattern_list):
+            if is_directory:
+                if has_included_files(item_full_path, item_rel_path, mode, pattern_list):
+                    return True
+            else:
+                return True
+        elif is_directory:
+            # ディレクトリ内をさらにチェック
+            if has_included_files(item_full_path, item_rel_path, mode, pattern_list):
+                return True
+    return False
+
 def generate_tree(dir_path, rel_path, prefix, files_to_include, tree_lines, mode, pattern_list):
     try:
         contents = os.listdir(dir_path)
@@ -38,34 +67,46 @@ def generate_tree(dir_path, rel_path, prefix, files_to_include, tree_lines, mode
     # ディレクトリとファイルを分ける
     contents_dirs = []
     contents_files = []
-    for item in contents:
+    for item in sorted(contents):
         item_full_path = os.path.join(dir_path, item)
         item_rel_path = os.path.join(rel_path, item) if rel_path else item
-        if not should_include(item_rel_path, mode, pattern_list):
-            continue
-        if os.path.isdir(item_full_path):
-            contents_dirs.append(item)
+        # パス区切り文字を統一
+        item_rel_path_normalized = normalize_path(item_rel_path)
+        is_directory = os.path.isdir(item_full_path)
+        include_item = False
+        if is_directory:
+            if has_included_files(item_full_path, item_rel_path, mode, pattern_list):
+                include_item = True
         else:
-            contents_files.append(item)
+            include_item = should_include(item_rel_path_normalized, is_directory, mode, pattern_list)
+        if include_item:
+            if is_directory:
+                contents_dirs.append(item)
+            else:
+                contents_files.append(item)
     contents = contents_dirs + contents_files
+    if not contents:
+        return
     # ポインタを準備
     pointers = ['├─'] * (len(contents) - 1) + ['└─']
     for pointer, item in zip(pointers, contents):
         item_full_path = os.path.join(dir_path, item)
         item_rel_path = os.path.join(rel_path, item) if rel_path else item
+        # パス区切り文字を統一
+        item_rel_path_normalized = normalize_path(item_rel_path)
+        is_directory = os.path.isdir(item_full_path)
         tree_line = prefix + pointer + item
         tree_lines.append(tree_line)
-        if os.path.isdir(item_full_path):
+        if is_directory:
             # 次のレベルのための接頭辞を準備
             if pointer == '├─':
                 extension = '│  '
             else:
                 extension = '   '
-            # サブディレクトリを再帰的に処理
             generate_tree(item_full_path, item_rel_path, prefix + extension, files_to_include, tree_lines, mode, pattern_list)
         else:
             # ファイルを収集
-            files_to_include.append((item_full_path, item_rel_path))
+            files_to_include.append((item_full_path, item_rel_path_normalized))
 
 def main():
     if len(sys.argv) != 2:
@@ -108,6 +149,8 @@ def main():
         print("obey.txtを認識しましたので、記載されているファイルのみを表示します。")
     else:
         print("ignore.txtとobey.txtが見つかりませんでした。指定されたフォルダのすべてのファイルを表示します。")
+    # パターンリストのパス区切り文字を統一
+    pattern_list = [normalize_path(pattern) for pattern in pattern_list]
     # 変数を初期化
     files_to_include = []
     tree_lines = []
