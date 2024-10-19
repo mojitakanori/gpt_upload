@@ -1,3 +1,15 @@
 #フォルダ名*とすることで、そのフォルダの中すべてを対象にできます。
 
-public*
+frontend/src/App.js
+frontend/src/PrivateRoute.js
+frontend/src/pages/login
+
+
+backend/.env
+backend/src/app.py
+
+nginx/nginx.conf
+
+docker-compose.yml
+.dockerignore
+Dockerfile
